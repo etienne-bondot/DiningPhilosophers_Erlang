@@ -6,7 +6,7 @@
 
 -define(PHILOSOPHERS, 5).
 -define(RICE, 100).
--define(VERBOSE_LEVEL, 2).
+-define(VERBOSE_LEVEL, 1).
 
 % The Dining Philosophers Problem, originally from Dijkstra, is a classic example
 % of concurrent algorithm design and highlights the problem of deadlock
@@ -45,7 +45,7 @@ college() ->
 %
 
 spawn_report() ->
-    register(report, spawn(?MODULE, report, [0])).
+    register(report, spawn(?MODULE, report, [0, ?PHILOSOPHERS])).
 
 %
 % spawn pair philosopher/right and left fork,
@@ -63,16 +63,25 @@ spawn_pair() ->
     Name = get_name(0),
     verbose(2, "Starting ~p~n", [Name]),
     register(Name, spawn(?MODULE, philosopher, [0, Name, LeftFork, RightFork, thinking])),
-    spawn_pair(1, LeftFork).
+    % the left fork become the right fork for the next philosopher
+    % and we keep the right fork to become the left fork of the last philosopher
+    spawn_pair(1, LeftFork, RightFork).
 
-spawn_pair(?PHILOSOPHERS, _) -> ok;
+spawn_pair(?PHILOSOPHERS, _, _) -> ok;
 
-spawn_pair(N, RightFork) ->
-    LeftFork = spawn(?MODULE, fork, [N + 1, on_table]),
+spawn_pair(N, RightFork, FirstFork) ->
     Name = get_name(N),
     verbose(2, "Starting ~p~n", [Name]),
+    case N + 1 =:= ?PHILOSOPHERS of
+        % for the last philosopher, the left fork is the right fork of the
+        % first philosopher
+        true -> LeftFork = FirstFork;
+        false -> LeftFork = spawn(?MODULE, fork, [N + 1, on_table])
+    end,
     register(Name, spawn(?MODULE, philosopher, [N, Name, LeftFork, RightFork, thinking])),
-    spawn_pair(N + 1, LeftFork).
+    % the left fork become the right fork for the next philosopher
+    % and we keep the right fork to become the left fork of the last philosopher
+    spawn_pair(N + 1, LeftFork, RightFork).
 
 %
 % report process
@@ -81,36 +90,62 @@ spawn_pair(N, RightFork) ->
 
 capitalize([X|Xs]) when X >= $a orelse X =< $z -> [X - 32|Xs].
 
-report(N) ->
+kill_them_all(?PHILOSOPHERS) -> done;
+kill_them_all(N) ->
+    Pid = whereis(get_name(N)),
+    Pid ! please_kill_yourself_now,
+    kill_them_all(N + 1).
+
+report(_, 0) -> exit(normal);
+report(N, NPhilo) ->
     receive
         {philo, Name, eating} ->
             verbose(1, "[~w] ~s: ~s~n", [?RICE - N + 1, capitalize(atom_to_list(Name)), atom_to_list(eating)]),
-            report(N + 1);
+            report(N + 1, NPhilo);
         {philo, Name, thinking} ->
             verbose(1, "[~w] ~s: ~s~n", [?RICE - N, capitalize(atom_to_list(Name)), atom_to_list(thinking)]),
-            report(N);
+            report(N, NPhilo);
         {philo, Name, hungry} ->
             verbose(1, "[~w] ~s: ~s~n", [?RICE - N, capitalize(atom_to_list(Name)), atom_to_list(hungry)]),
-            report(N);
+            report(N, NPhilo);
         {philo, Name, pick_left} ->
-            verbose(1, "[~w] ~s: pick the left fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N);
+            verbose(2, "[~w] ~s: picks up the left fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
+            report(N, NPhilo);
         {philo, Name, pick_right} ->
-            verbose(1, "[~w] ~s: pick the right fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N);
+            verbose(2, "[~w] ~s: picks up the right fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
+            report(N, NPhilo);
+        {philo, Name, drop_left} ->
+            verbose(2, "[~w] ~s: puts down the left fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
+            report(N, NPhilo);
+        {philo, Name, drop_right} ->
+            verbose(2, "[~w] ~s: puts down the right fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
+            report(N, NPhilo);
+        {philo, Name, can_eat} ->
+            Pid = whereis(Name),
+            case ?RICE - N > 0 of
+                true ->
+                    verbose(2, "There is still some rice[~w] for ~s...~n", [N, Name]),
+                    Pid ! ok;
+                false ->
+                    verbose(2, "There is no more rice[~w] for ~s...~n", [N, Name]),
+                    Pid ! ko
+            end,
+            report(N, NPhilo);
         {philo, Name, shutdown} ->
-            verbose(1, "[~w] ~s is full, shutdown...~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N);
+            verbose(2, "[~w] ~s is full, shutdown...~n", [?RICE - N, capitalize(atom_to_list(Name))]),
+            report(N, NPhilo - 1);
         {fork, Pid, on_table} ->
             verbose(1, "~n Fork ~w: on table~n", [Pid]),
-            report(N);
+            report(N, NPhilo);
         {fork, Pid, in_use} ->
             verbose(1, "~n Fork ~w: in use~n", [Pid]),
-            report(N);
-        {info, Name, amount_of_rice} ->
-            Pid = whereis(Name),
-            Pid ! {amount_of_rice, ?RICE - N},
-            report(N)
+            report(N, NPhilo)
+    after 2000 ->
+        % in case of fool philosophers
+        % ask them to commit suicide with the forks
+        verbose(2, "Philosophers are stucked... kill everyone!!!", []),
+        kill_them_all(0),
+        report(N, 0)
     end.
 
 %
@@ -145,28 +180,31 @@ philosopher(Idx, Name, Left, Right, thinking) ->
     timer:sleep(1000),
     philosopher(Idx, Name, Left, Right, hungry);
 
-% don't forget to drop the forks before being shutdow, because
+% don't forget to drop the forks before being shutdown, because
 % there might be still hungry philosophers that wait for forks
 philosopher(Idx, Name, Left, Right, hungry) ->
     Report = whereis(report),
     Report ! {philo, Name, hungry},
+
+    % this trick avoid to have only one philosopher to eat
     case Idx rem 2 =:= 0 of
         true ->
-            verbose(2, "~n~s ask for the left fork~n", [Name]),
+            verbose(2, "~n~s asks for the left fork~n", [Name]),
             check_fork(Name, Left, left),
-            verbose(2, "~n~s ask for the right fork~n", [Name]),
+            verbose(2, "~n~s asks for the right fork~n", [Name]),
             check_fork(Name, Right, right);
         false ->
-            verbose(2, "~n~s ask for the right fork~n", [Name]),
+            verbose(2, "~n~s asks for the right fork~n", [Name]),
             check_fork(Name, Right, right),
-            verbose(2, "~n~s ask for the left fork~n", [Name]),
+            verbose(2, "~n~s asks for the left fork~n", [Name]),
             check_fork(Name, Left, left)
     end,
+
     verbose(2, "~n~s has the right and left fork~n", [Name]),
-    verbose(2, "~n~s check the amount of rice~n", [Name]),
+    verbose(2, "~n~s checks the amount of rice~n", [Name]),
     case check_rice(Name) of
         ok -> philosopher(Idx, Name, Left, Right, eating);
-        ko -> drop_fork(Name, Left, Right), shutdown
+        ko -> drop_fork(Name, Left, Right), exit(normal)
     end;
 
 philosopher(Idx, Name, Left, Right, eating) ->
@@ -176,6 +214,10 @@ philosopher(Idx, Name, Left, Right, eating) ->
     drop_fork(Name, Left, Right),
     philosopher(Idx, Name, Left, Right, thinking).
 
+philosopher(Name, shutdown) ->
+    verbose(2, "~n~s kill himself... :'(~n", [Name]),
+    exit(normal).
+
 %
 % check if there is still enough rice to eat
 % if there is no more rice, return ko and the philosopher shutdown
@@ -183,22 +225,16 @@ philosopher(Idx, Name, Left, Right, eating) ->
 
 check_rice(Name) ->
     Report = whereis(report),
-    Report ! {info, Name, amount_of_rice},
+    Report ! {philo, Name, can_eat},
     receive
-        {amount_of_rice, N} ->
-            case N =< 0 of
-                true ->
-                    verbose(2, "There is no more rice[~w] for ~s...~n", [N, Name]),
-                    Report ! {philo, Name, shutdown},
-                    ko;
-                false ->
-                    verbose(2, "There is still some rice[~w] for ~s...~n", [N, Name]),
-                    ok
-            end
+        ok -> ok;
+        ko -> Report ! {philo, Name, shutdown}, ko
     end.
 
 %
 % check the availability of a fork and loop again if the fork is in use
+% if stuck in loop for a long time (~2000ms), reporter should tell the philosopher to
+% killhimself.
 %
 
 check_fork(Name, Fork, Direction) ->
@@ -210,7 +246,8 @@ check_fork(Name, Fork, Direction) ->
                 true -> Report ! {philo, Name, pick_left};
                 false -> Report ! {philo, Name, pick_right}
             end;
-        ko -> check_fork(Name, Fork, Direction)
+        ko -> check_fork(Name, Fork, Direction);
+        please_kill_yourself_now -> philosopher(Name, shutdown)
     end.
 
 %
@@ -219,12 +256,13 @@ check_fork(Name, Fork, Direction) ->
 %
 
 drop_fork(Name, Left, Right) ->
+    Report = whereis(report),
     Pid = whereis(Name),
     Left ! {drop, Pid},
     receive
-        ok -> verbose(2, "~n~s drop the left fork~n", [Name]), ok
+        ok -> Report ! {philo, Name, drop_left}
     end,
     Right ! {drop, Pid},
     receive
-        ok -> verbose(2, "~n~s drop the right fork~n", [Name]), ok
+        ok -> Report ! {philo, Name, drop_right}
     end.
