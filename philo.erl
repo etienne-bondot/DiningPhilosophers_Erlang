@@ -5,7 +5,6 @@
 -compile([export_all]).
 
 -define(PHILOSOPHERS, 5).
--define(RICE, 100).
 -define(VERBOSE_LEVEL, 1).
 
 % The Dining Philosophers Problem, originally from Dijkstra, is a classic example
@@ -18,7 +17,7 @@
 % forks, each one placed between two of the philosophers. When a philosopher
 % is hungry they pick up the two forks immediately adjacent to them (one left
 % and one right). If a fork is not available then the philosopher must wait.
-% Having finished eating the philosopher returns the forks to the table and goes
+% Having finished eating the philosopher reCycles the forks to the table and goes
 % back to thinking.
 
 verbose(Level, FormatString, Parameters) when Level =< ?VERBOSE_LEVEL ->
@@ -27,10 +26,10 @@ verbose(_, _, _) ->
     ok.
 
 get_name(N) when N == 0 -> platon;
-get_name(N) when N == 1 -> confucius;
-get_name(N) when N == 2 -> socrates;
-get_name(N) when N == 3 -> aristote;
-get_name(N) when N == 4 -> epicure.
+get_name(N) when N == 1 -> ciceron;
+get_name(N) when N == 2 -> socrate;
+get_name(N) when N == 3 -> seneque;
+get_name(N) when N == 4 -> lucrece.
 
 college() ->
     % spawns a report process, five fork processes and five philosopher processes.
@@ -45,7 +44,7 @@ college() ->
 %
 
 spawn_report() ->
-    register(report, spawn(?MODULE, report, [0, ?PHILOSOPHERS])).
+    register(report, spawn(?MODULE, report, [])).
 
 %
 % spawn pair philosopher/right and left fork,
@@ -62,7 +61,7 @@ spawn_pair() ->
     LeftFork = spawn(?MODULE, fork, [1, on_table]),
     Name = get_name(0),
     verbose(2, "Starting ~p~n", [Name]),
-    register(Name, spawn(?MODULE, philosopher, [0, Name, LeftFork, RightFork, thinking])),
+    register(Name, spawn(?MODULE, philosopher, [0, Name, LeftFork, RightFork, thinking, 0])),
     % the left fork become the right fork for the next philosopher
     % and we keep the right fork to become the left fork of the last philosopher
     spawn_pair(1, LeftFork, RightFork).
@@ -78,7 +77,7 @@ spawn_pair(N, RightFork, FirstFork) ->
         true -> LeftFork = FirstFork;
         false -> LeftFork = spawn(?MODULE, fork, [N + 1, on_table])
     end,
-    register(Name, spawn(?MODULE, philosopher, [N, Name, LeftFork, RightFork, thinking])),
+    register(Name, spawn(?MODULE, philosopher, [N, Name, LeftFork, RightFork, thinking, 0])),
     % the left fork become the right fork for the next philosopher
     % and we keep the right fork to become the left fork of the last philosopher
     spawn_pair(N + 1, LeftFork, RightFork).
@@ -96,57 +95,35 @@ kill_them_all(N) ->
     Pid ! please_kill_yourself_now,
     kill_them_all(N + 1).
 
-report(_, 0) -> exit(normal);
-report(N, NPhilo) ->
+report() ->
     receive
-        {philo, Name, eating} ->
-            verbose(1, "[~w] ~s: ~s~n", [?RICE - N + 1, capitalize(atom_to_list(Name)), atom_to_list(eating)]),
-            report(N + 1, NPhilo);
-        {philo, Name, thinking} ->
-            verbose(1, "[~w] ~s: ~s~n", [?RICE - N, capitalize(atom_to_list(Name)), atom_to_list(thinking)]),
-            report(N, NPhilo);
-        {philo, Name, hungry} ->
-            verbose(1, "[~w] ~s: ~s~n", [?RICE - N, capitalize(atom_to_list(Name)), atom_to_list(hungry)]),
-            report(N, NPhilo);
-        {philo, Name, pick_left} ->
-            verbose(2, "[~w] ~s: picks up the left fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N, NPhilo);
-        {philo, Name, pick_right} ->
-            verbose(2, "[~w] ~s: picks up the right fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N, NPhilo);
-        {philo, Name, drop_left} ->
-            verbose(2, "[~w] ~s: puts down the left fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N, NPhilo);
-        {philo, Name, drop_right} ->
-            verbose(2, "[~w] ~s: puts down the right fork~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N, NPhilo);
-        {philo, Name, can_eat} ->
-            Pid = whereis(Name),
-            case ?RICE - N > 0 of
-                true ->
-                    verbose(2, "There is still some rice[~w] for ~s...~n", [N, Name]),
-                    Pid ! ok;
-                false ->
-                    verbose(2, "There is no more rice[~w] for ~s...~n", [N, Name]),
-                    Pid ! ko
-            end,
-            report(N, NPhilo);
-        {philo, Name, shutdown} ->
-            verbose(2, "[~w] ~s is full, shutdown...~n", [?RICE - N, capitalize(atom_to_list(Name))]),
-            report(N, NPhilo - 1);
+        {philo, Name, eating, Cycle} ->
+            verbose(1, "[~w] ~s\t: ~s~n", [Cycle, capitalize(atom_to_list(Name)), atom_to_list(eating)]);
+        {philo, Name, thinking, Cycle} ->
+            verbose(1, "[~w] ~s\t: ~s~n", [Cycle, capitalize(atom_to_list(Name)), atom_to_list(thinking)]);
+        {philo, Name, hungry, Cycle} ->
+            verbose(1, "[~w] ~s\t: ~s~n", [Cycle, capitalize(atom_to_list(Name)), atom_to_list(hungry)]);
+        {philo, Name, pick_left, Cycle} ->
+            verbose(1, "[~w] ~s\t: picks up the left fork~n", [Cycle, capitalize(atom_to_list(Name))]);
+        {philo, Name, pick_right, Cycle} ->
+            verbose(1, "[~w] ~s\t: picks up the right fork~n", [Cycle, capitalize(atom_to_list(Name))]);
+        {philo, Name, drop_left, Cycle} ->
+            verbose(1, "[~w] ~s\t: puts down the left fork~n", [Cycle, capitalize(atom_to_list(Name))]);
+        {philo, Name, drop_right, Cycle} ->
+            verbose(1, "[~w] ~s\t: puts down the right fork~n", [Cycle, capitalize(atom_to_list(Name))]);
         {fork, Pid, on_table} ->
-            verbose(1, "~n Fork ~w: on table~n", [Pid]),
-            report(N, NPhilo);
+            verbose(1, "Fork ~w\t: on table~n", [Pid]);
         {fork, Pid, in_use} ->
-            verbose(1, "~n Fork ~w: in use~n", [Pid]),
-            report(N, NPhilo)
+            verbose(1, "Fork ~w\t: in use~n", [Pid])
     after 2000 ->
         % in case of fool philosophers
         % ask them to commit suicide with the forks
         verbose(2, "Philosophers are stucked... kill everyone!!!", []),
         kill_them_all(0),
-        report(N, 0)
-    end.
+        exit(normal)
+    end,
+    report().
+
 
 %
 % fork process
@@ -174,62 +151,44 @@ fork(Pid, Status) ->
 % philosopher process
 %
 
-philosopher(Idx, Name, Left, Right, thinking) ->
+philosopher(Idx, Name, Left, Right, thinking, Cycle) ->
     Report = whereis(report),
-    Report ! {philo, Name, thinking},
-    timer:sleep(1000),
-    philosopher(Idx, Name, Left, Right, hungry);
+    Report ! {philo, Name, thinking, Cycle},
+    timer:sleep(random:uniform(1000) + 100),
+    philosopher(Idx, Name, Left, Right, hungry, Cycle);
 
 % don't forget to drop the forks before being shutdown, because
 % there might be still hungry philosophers that wait for forks
-philosopher(Idx, Name, Left, Right, hungry) ->
+philosopher(Idx, Name, Left, Right, hungry, Cycle) ->
     Report = whereis(report),
-    Report ! {philo, Name, hungry},
+    Report ! {philo, Name, hungry, Cycle},
 
     % this trick avoid to have only one philosopher to eat
     case Idx rem 2 =:= 0 of
         true ->
             verbose(2, "~n~s asks for the left fork~n", [Name]),
-            check_fork(Name, Left, left),
+            check_fork(Name, Left, left, Cycle),
             verbose(2, "~n~s asks for the right fork~n", [Name]),
-            check_fork(Name, Right, right);
+            check_fork(Name, Right, right, Cycle);
         false ->
             verbose(2, "~n~s asks for the right fork~n", [Name]),
-            check_fork(Name, Right, right),
+            check_fork(Name, Right, right, Cycle),
             verbose(2, "~n~s asks for the left fork~n", [Name]),
-            check_fork(Name, Left, left)
+            check_fork(Name, Left, left, Cycle)
     end,
-
     verbose(2, "~n~s has the right and left fork~n", [Name]),
-    verbose(2, "~n~s checks the amount of rice~n", [Name]),
-    case check_rice(Name) of
-        ok -> philosopher(Idx, Name, Left, Right, eating);
-        ko -> drop_fork(Name, Left, Right), exit(normal)
-    end;
+    philosopher(Idx, Name, Left, Right, eating, Cycle);
 
-philosopher(Idx, Name, Left, Right, eating) ->
+philosopher(Idx, Name, Left, Right, eating, Cycle) ->
     Report = whereis(report),
-    Report ! {philo, Name, eating},
-    timer:sleep(1000),
-    drop_fork(Name, Left, Right),
-    philosopher(Idx, Name, Left, Right, thinking).
+    Report ! {philo, Name, eating, Cycle},
+    timer:sleep(random:uniform(1000) + 100),
+    drop_fork(Name, Left, Right, Cycle),
+    philosopher(Idx, Name, Left, Right, thinking, Cycle + 1).
 
 philosopher(Name, shutdown) ->
     verbose(2, "~n~s kill himself... :'(~n", [Name]),
     exit(normal).
-
-%
-% check if there is still enough rice to eat
-% if there is no more rice, return ko and the philosopher shutdown
-%
-
-check_rice(Name) ->
-    Report = whereis(report),
-    Report ! {philo, Name, can_eat},
-    receive
-        ok -> ok;
-        ko -> Report ! {philo, Name, shutdown}, ko
-    end.
 
 %
 % check the availability of a fork and loop again if the fork is in use
@@ -237,16 +196,16 @@ check_rice(Name) ->
 % killhimself.
 %
 
-check_fork(Name, Fork, Direction) ->
+check_fork(Name, Fork, Direction, Cycle) ->
     Report = whereis(report),
     Fork ! {pick, whereis(Name)},
     receive
         ok ->
             case Direction =:= left of
-                true -> Report ! {philo, Name, pick_left};
-                false -> Report ! {philo, Name, pick_right}
+                true -> Report ! {philo, Name, pick_left, Cycle};
+                false -> Report ! {philo, Name, pick_right, Cycle}
             end;
-        ko -> check_fork(Name, Fork, Direction);
+        ko -> check_fork(Name, Fork, Direction, Cycle);
         please_kill_yourself_now -> philosopher(Name, shutdown)
     end.
 
@@ -255,14 +214,61 @@ check_fork(Name, Fork, Direction) ->
 % this allow the other hungry philosophers to take them
 %
 
-drop_fork(Name, Left, Right) ->
+drop_fork(Name, Left, Right, Cycle) ->
     Report = whereis(report),
     Pid = whereis(Name),
     Left ! {drop, Pid},
     receive
-        ok -> Report ! {philo, Name, drop_left}
+        ok -> Report ! {philo, Name, drop_left, Cycle}
     end,
     Right ! {drop, Pid},
     receive
-        ok -> Report ! {philo, Name, drop_right}
+        ok -> Report ! {philo, Name, drop_right, Cycle}
     end.
+
+
+%%
+%% CHALLENGE
+%%
+
+% 1. Is there any possibility of deadlock in your system? If not, explain why
+% this is so. If there is, explain the situation in which deadlock could occur
+% (referring to your own implementation).
+%
+% A deadlock is when there's a cycle in the locking dependencies of two or
+% more processes. For instance, in a program :
+%
+% Foo = spawn(fun() -> receive
+%   {From, foo} ->
+%     From ! {self(), bar},
+%     io:format("foo done~n")
+%   end
+% end).
+% Bar = spawn(fun() -> receive
+%   {From, bar} ->
+%     From ! {self(), foo},
+%     io:format("bar done~n")
+%   end
+% end).
+%
+% Because both Foo and Bar are waiting for a message, if there is not an other
+% actor that send Foo ! {Pid, foo} or Bar ! {Pid, bar}, both processes will
+% be deadlocked.
+%
+% But there is no such case in this project because there is not two interdependent
+% processes that are each waiting for a message from the other, but processes
+% which send a message and wait for an answer.
+% In the worst case, we could have infinite loop, like if a philosopher check
+% for the availability of a fork and the fork allways answer that it is unavailable.
+% Thus, the philosopher will ask again and again, but this is not a deadlock
+% strictly speaking. And even if this could happened in case of bad implementation,
+% the reporter will timeout after 2s without receiving any message and ask all the
+% philosophers to exit properly.
+%
+% 2. Assuming that there is a danger of deadlock in the system, answer one of the
+% following questions: (a) How could the deadlock be avoided? (preventing it from
+% occuring in the first place)
+%
+% The only rule to avoid deadlock is that if process A sends a message and waits
+% for a response from process B, process B is not allowed, to do a synchronous call
+% to process A, as the messages might cross and cause the deadlock.
