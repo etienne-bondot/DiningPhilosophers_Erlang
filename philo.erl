@@ -109,10 +109,10 @@ report() ->
             verbose(1, "[~w] ~s\t: puts down the left fork~n", [Cycle, capitalize(atom_to_list(get_name(Idx)))]);
         {philo, Idx, drop_right, Cycle} ->
             verbose(1, "[~w] ~s\t: puts down the right fork~n", [Cycle, capitalize(atom_to_list(get_name(Idx)))]);
-        {fork, Pid, on_table} ->
-            verbose(1, "Fork ~w\t: on table~n", [Pid]);
-        {fork, Pid, in_use} ->
-            verbose(1, "Fork ~w\t: in use~n", [Pid])
+        {fork, Idx, on_table} ->
+            verbose(1, "Fork ~w\t: on table~n", [Idx]);
+        {fork, Idx, in_use} ->
+            verbose(1, "Fork ~w\t: in use~n", [Idx])
     after 2000 ->
         % in case of fool philosophers
         verbose(2, "Philosophers are stucked... program is shutting down.", []),
@@ -126,20 +126,20 @@ report() ->
 % fork process
 %
 
-fork(Pid, Status) ->
+fork(Idx, Status) ->
     receive
         {pick, Source} ->
             case Status =:= on_table of
                 true ->
                     Source ! ok,
-                    report ! {fork, Pid, in_use};
+                    report ! {fork, Idx, in_use};
                 false ->
                     Source ! ko
             end,
-            fork(Pid, in_use);
+            fork(Idx, in_use);
         drop ->
-            report ! {fork, Pid, on_table},
-            fork(Pid, on_table)
+            report ! {fork, Idx, on_table},
+            fork(Idx, on_table)
     end.
 
 %
