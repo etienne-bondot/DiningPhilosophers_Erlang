@@ -42,8 +42,7 @@ college() ->
 % spawn report processes
 %
 
-spawn_report() ->
-    register(report, spawn(?MODULE, report, [])).
+spawn_report() -> register(report, spawn(?MODULE, report, [])).
 
 %
 % spawn pair philosopher/right and left fork,
@@ -52,7 +51,7 @@ spawn_report() ->
 % philosopher to the next (thus beginning his right fork) and spawn only a
 % new left fork, and so on until we reach the number PHILOSOPHERS.
 % -> fork(Index, status)
-% -> philosopher(Index, LeftForkPid, RightForkPid, action)
+% -> philosopher(Index, LeftForkPid, RightForkPid, action, cycle)
 %
 
 spawn_pair() ->
